@@ -1,4 +1,4 @@
-"""Sensor modules for accelerometer and distance sensor."""
+"""Sensor modules for accelerometer."""
 
 import smbus
 import time
@@ -26,7 +26,7 @@ class Accelerometer(Sensor):
         Initialize the accelerometer.
         
         Args:
-            i2c_address: I2C address of the accelerometer (default: 0x1C for MMA8452)
+            i2c_address: I2C address of the accelerometer (default: 0x1D for MMA8452)
             bus: I2C bus number (default: 1 for Raspberry Pi)
         """
         self.i2c_address = i2c_address
@@ -35,19 +35,17 @@ class Accelerometer(Sensor):
         try:
             self.i2c = smbus.SMBus(bus)
             
-            # Step 1: Put sensor in STANDBY mode (clear ACTIVE bit)
-            self.i2c.write_byte_data(i2c_address, 0x2A, ctrl_reg1 & 0xFE)  # Clear bit 0
-            
-            
-            # Step 2: Set range to ±8g (register 0x0E, bits 0-1 = 10 for ±8g)
-            ctrl_reg2 = self.i2c.read_byte_data(i2c_address, 0x0E)
-            self.i2c.write_byte_data(i2c_address, 0x0E, (ctrl_reg2 & 0xFC) | 0x02)  # Set bits 0-1 to 10 for ±8g
+            # Put sensor in STANDBY mode
+            self.i2c.write_byte_data(i2c_address, 0x2A, 0x00)
             time.sleep(0.1)
             
-            # Step 3: Put sensor in ACTIVE mode (set ACTIVE bit)
-            ctrl_reg1 = self.i2c.read_byte_data(i2c_address, 0x2A)
-            self.i2c.write_byte_data(i2c_address, 0x2A, ctrl_reg1 | 0x01)  # Set bit 0
+            # Set range to ±8g (0x02 for ±8g)
+            self.i2c.write_byte_data(i2c_address, 0x0E, 0x02)
             time.sleep(0.1)
+            
+            # Put sensor in ACTIVE mode
+            self.i2c.write_byte_data(i2c_address, 0x2A, 0x01)
+            time.sleep(0.5)
             
             print("[ACCELEROMETER] Initialized on I2C address 0x{:02X}".format(i2c_address))
         except Exception as e:
@@ -71,29 +69,35 @@ class Accelerometer(Sensor):
             }
         
         try:
-            # Read accel data from registers 0x01 to 0x06 (6 bytes)
-            # Registers: OUT_X_MSB (0x01), OUT_X_LSB (0x02), OUT_Y_MSB (0x03), 
-            #            OUT_Y_LSB (0x04), OUT_Z_MSB (0x05), OUT_Z_LSB (0x06)
-            accel_data = self.i2c.read_i2c_block_data(self.i2c_address, 0x00, 7)
+            # Read data back from 0x00 (Status register + 6 acceleration bytes)
+            data = self.i2c.read_i2c_block_data(self.i2c_address, 0x00, 7)
             
-            # MMA8452 data format: 14-bit signed, right-justified in 16-bit register
-            # Extract 14-bit values (ignore lower 2 bits)
-            x = (accel_data[0] << 8 | accel_data[1]) >> 2
-            y = (accel_data[2] << 8 | accel_data[3]) >> 2
-            z = (accel_data[4] << 8 | accel_data[5]) >> 2
+            # Extract X, Y, Z acceleration values
+            # data[0] = Status register
+            # data[1:3] = X-Axis (MSB, LSB)
+            # data[3:5] = Y-Axis (MSB, LSB)
+            # data[5:7] = Z-Axis (MSB, LSB)
             
-            # Convert to signed 14-bit
-            if x > 8191:  # 2^13 - 1
-                x -= 16384
-            if y > 8191:
-                y -= 16384
-            if z > 8191:
-                z -= 16384
+            # Convert raw values to acceleration
+            # Division by 16 converts 14-bit data to 10-bit representation
+            x_raw = (data[1] * 256 + data[2]) / 16
+            y_raw = (data[3] * 256 + data[4]) / 16
+            z_raw = (data[5] * 256 + data[6]) / 16
             
-            # Convert to m/s² (±8g range: 1g = 9.81 m/s², so 1 unit = 9.81/1024)
-            x = (x / 1024.0) * 9.81
-            y = (y / 1024.0) * 9.81
-            z = (z / 1024.0) * 9.81
+            # Convert to signed values
+            if x_raw > 2047:
+                x_raw -= 4096
+            if y_raw > 2047:
+                y_raw -= 4096
+            if z_raw > 2047:
+                z_raw -= 4096
+            
+            # Convert to m/s² 
+            # For ±8g: sensitivity is 1mg per count (after division by 16)
+            # So 1 unit = 0.001g = 0.001 * 9.81 m/s² = 0.00981 m/s²
+            x = x_raw * 0.00981
+            y = y_raw * 0.00981
+            z = z_raw * 0.00981
             
             return {
                 'x': round(x, 2),
