@@ -50,7 +50,7 @@ rpi_measurement_system/
 Both buttons use **internal pull-up resistors**, so no external resistors are needed.
 
 **BEGIN Button (GPIO 17):**
-- One end: GPIO 17 (Pin 11 on Raspberry Pi)
+- One end: GPIO 17 (Pin 11   on Raspberry Pi)
 - Other end: GND (Ground - any GND pin)
 
 **POWER Button (GPIO 27):**
